@@ -43,3 +43,19 @@ diagnose_gmail_*.py
 Thumbs.db
 .vscode/
 .idea/
+
+# Temporary development and patch files
+*.bak*
+*.txt.bak*
+*_corrected.py
+*_final.py
+*_pagination.py
+*_safety_updated.py
+*_watermark_fixed.py
+*_source.txt
+patch_*.py
+main_watermark_fixed.py
+integrate_omniroute.py
+reasoning_engine_source.txt
+*.py.txt
+*.txt.pt
