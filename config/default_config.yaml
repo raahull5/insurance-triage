@@ -1,0 +1,33 @@
+﻿system:
+  polling_interval_seconds: 60
+  watermark_file: data/watermark.json
+  csv_report_path: data/triage_results.csv
+  db_path: data/insurance_triage.db
+  log_level: INFO
+gmail:
+  account_name: default
+  inbox_folder: INBOX
+  keychain_service: himalaya_gmail
+  keychain_account: gmail_user
+ai:
+  model: auto/best-coding
+  temperature: 0.2
+  max_tokens: 2000
+  enable_safety_check: true
+autoreply:
+  enabled: false
+  dry_run: true
+  signature: '
+
+
+    Best regards,
+
+    Customer Support & Claims Team
+
+    Apex Shield Insurance'
+dashboard:
+  host: 127.0.0.1
+  port: 8080
+  refresh_interval_seconds: 10
+
+

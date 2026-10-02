@@ -1,0 +1,45 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+wheels/
+
+# Virtual environments
+.venv/
+venv/
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local data
+data/
+*.db
+*.sqlite
+*.sqlite3
+*.csv
+
+# Logs
+*.log
+logs/
+
+# Backups and archives
+backups/
+*.bak
+*.bak.*
+*.zip
+
+# Local credential utilities
+get_gmail_password.py
+diagnose_gmail_*.py
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
