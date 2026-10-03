@@ -228,122 +228,255 @@ class EmailPreprocessor:
                 "Message payload has no 'id' or 'message_id'"
             )
 
-        from_field = data.get("from", {})
-        sender_name = ""
-        sender_email = ""
+        parts = data.get("parts", [])
 
-        # Handle Himalaya address lists, dictionaries and strings.
-        if isinstance(from_field, list):
-            first = from_field[0] if from_field else {}
+        def get_value(obj, *names):
+            """Get a field using case-insensitive key matching."""
+            if not isinstance(obj, dict):
+                return None
+            wanted = {name.lower() for name in names}
+            for key, value in obj.items():
+                if str(key).lower() in wanted:
+                    return value
+            return None
 
-            if isinstance(first, dict):
-                sender_name = first.get("name", "") or ""
-                sender_email = (
-                    first.get("addr")
-                    or first.get("email")
-                    or ""
-                )
-            else:
-                sender_email = str(first).strip()
+        def unwrap_text(value):
+            """Extract text from strings and Himalaya value wrappers."""
+            if isinstance(value, str):
+                return value.strip()
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                return str(value)
+            if isinstance(value, list):
+                for item in value:
+                    result = unwrap_text(item)
+                    if result:
+                        return result
+                return ""
+            if isinstance(value, dict):
+                for key in ("Text", "String", "Value"):
+                    nested = get_value(value, key)
+                    if nested is not None:
+                        result = unwrap_text(nested)
+                        if result:
+                            return result
+            return ""
 
-        elif isinstance(from_field, dict):
-            sender_name = from_field.get("name", "") or ""
-            sender_email = (
-                from_field.get("addr")
-                or from_field.get("email")
-                or ""
+        def header_name(header):
+            """Normalize Himalaya header names, including {other: ...}."""
+            if not isinstance(header, dict):
+                return str(header).strip().lower()
+            name = header.get("name", "")
+            if isinstance(name, str):
+                return name.strip().lower().replace("-", "_")
+            if isinstance(name, dict):
+                other = get_value(name, "other")
+                if isinstance(other, str):
+                    return other.strip().lower().replace("-", "_")
+                for key in name:
+                    if str(key).lower() not in ("other",):
+                        return str(key).strip().lower().replace("-", "_")
+            return ""
+
+        # Himalaya stores the original message headers in the first MIME part.
+        mime_headers = []
+        if isinstance(parts, list) and parts and isinstance(parts[0], dict):
+            candidate = parts[0].get("headers", [])
+            if isinstance(candidate, list):
+                mime_headers = candidate
+
+        def get_mime_header(*names):
+            wanted = {name.lower().replace("-", "_") for name in names}
+            for header in mime_headers:
+                if not isinstance(header, dict):
+                    continue
+                if header_name(header) in wanted:
+                    return header.get("value")
+            return None
+
+        def first_available(top_level_name, *header_names):
+            value = data.get(top_level_name)
+            if value not in (None, "", [], {}):
+                return value
+            return get_mime_header(*header_names)
+
+        def parse_address(value):
+            """Return (display name, email) from Himalaya address data."""
+            if isinstance(value, list):
+                for item in value:
+                    name, address = parse_address(item)
+                    if name or address:
+                        return name, address
+                return "", ""
+
+            if isinstance(value, str):
+                value = value.strip()
+                match = re.match(r'^\s*(.*?)\s*<([^<>]+)>\s*$', value)
+                if match:
+                    return match.group(1).strip(" \"'"), match.group(2).strip()
+                if "@" in value:
+                    return "", value
+                return value, ""
+
+            if not isinstance(value, dict):
+                return "", ""
+
+            # Himalaya address representation: {"Address": {"List": [...]}}.
+            nested_address = get_value(value, "Address")
+            if isinstance(nested_address, dict):
+                address_list = get_value(nested_address, "List")
+                if isinstance(address_list, list):
+                    return parse_address(address_list)
+            if isinstance(nested_address, list):
+                return parse_address(nested_address)
+
+            name = unwrap_text(get_value(value, "Name", "name"))
+            address = unwrap_text(
+                get_value(value, "addr", "email", "address")
             )
+            if not address and isinstance(nested_address, str):
+                address = nested_address.strip()
 
-        elif isinstance(from_field, str):
-            match = re.match(
-                r"(.*?)(?:<(.+@.+)>)?$", from_field
-            )
+            if address and "<" in address:
+                parsed_name, parsed_address = parse_address(address)
+                if parsed_address:
+                    address = parsed_address
+                    name = name or parsed_name
 
-            if match:
-                sender_name = match.group(1).strip(' "\'')
-                sender_email = (
-                    match.group(2)
-                    if match.group(2)
-                    else match.group(1).strip(' "\'')
-                )
-            else:
-                sender_email = from_field.strip()
+            return name, address
 
-        elif from_field is not None:
-            sender_email = str(from_field).strip()
+        sender_value = first_available("from", "from")
+        sender_name, sender_email = parse_address(sender_value)
 
-        to_field = data.get("to", "")
+        recipient_value = first_available("to", "to")
+        _, to_addr = parse_address(recipient_value)
 
-        if isinstance(to_field, list) and to_field:
-            first_to = to_field[0]
-            if isinstance(first_to, dict):
-                to_addr = (
-                    first_to.get("addr")
-                    or first_to.get("email")
-                    or ""
-                )
-            else:
-                to_addr = str(first_to)
+        subject_value = first_available("subject", "subject")
+        subject = unwrap_text(subject_value)
 
-        elif isinstance(to_field, dict):
-            to_addr = (
-                to_field.get("addr")
-                or to_field.get("email")
-                or ""
-            )
-        else:
-            to_addr = str(to_field)
+        date_value = first_available("date", "date")
 
-        subject = data.get("subject", "") or ""
+        def format_himalaya_date(value):
+            """Format Himalaya's structured DateTime value as ISO 8601."""
+            if isinstance(value, dict):
+                date_obj = get_value(value, "DateTime", "date_time")
+                if isinstance(date_obj, dict):
+                    year = get_value(date_obj, "year")
+                    month = get_value(date_obj, "month")
+                    day = get_value(date_obj, "day")
+                    hour = get_value(date_obj, "hour")
+                    minute = get_value(date_obj, "minute")
+                    second = get_value(date_obj, "second")
+                    if all(v is not None for v in (year, month, day)):
+                        hour = int(hour or 0)
+                        minute = int(minute or 0)
+                        second = int(second or 0)
+                        tz_hour = int(get_value(date_obj, "tz_hour") or 0)
+                        tz_minute = int(get_value(date_obj, "tz_minute") or 0)
+                        negative = bool(get_value(date_obj, "tz_before_gmt"))
+                        sign = "-" if negative else "+"
+                        return (
+                            f"{int(year):04d}-{int(month):02d}-{int(day):02d}"
+                            f"T{hour:02d}:{minute:02d}:{second:02d}"
+                            f"{sign}{tz_hour:02d}:{tz_minute:02d}"
+                        )
+            return unwrap_text(value)
 
-        if isinstance(subject, list):
-            subject = " ".join(str(s) for s in subject)
+        received_date = format_himalaya_date(date_value)
 
-        subject = subject.strip()
-
-        received_date = data.get("date", "") or ""
-
-        if isinstance(received_date, list):
-            received_date = (
-                str(received_date[0]) if received_date else ""
-            )
-
-        received_date = received_date.strip()
         in_reply_to = (
             data.get("in_reply_to")
             or data.get("in-reply-to")
+            or unwrap_text(get_mime_header("in_reply_to", "in-reply-to"))
             or None
         )
-        references = data.get("references") or None
+        if isinstance(in_reply_to, str) and in_reply_to.strip().lower() == "empty":
+            in_reply_to = None
 
-        # Prefer the already-extracted body, then fall back to
-        # the MIME fields when necessary.
-        raw_body = (
-            data.get("body", "")
-            or data.get("text_body", "")
-            or data.get("html_body", "")
+        references = (
+            data.get("references")
+            or unwrap_text(get_mime_header("references"))
+            or None
         )
+        if isinstance(references, str) and references.strip().lower() == "empty":
+            references = None
 
-        if isinstance(raw_body, list):
-            chunks = []
+        # Himalaya's text_body/html_body fields are indexes into
+        # the parts array, not the actual message text.
+        parts = data.get("parts", [])
+        text_indices = data.get("text_body", [])
+        html_indices = data.get("html_body", [])
 
-            for part in raw_body:
-                if isinstance(part, dict):
-                    chunks.append(
-                        str(
-                            part.get("content", "")
-                            or part.get("body", "")
-                        )
-                    )
-                else:
-                    chunks.append(str(part))
+        def get_part_content(index):
+            if (
+                not isinstance(index, int)
+                or isinstance(index, bool)
+                or not isinstance(parts, list)
+                or not 0 <= index < len(parts)
+            ):
+                return ""
 
-            raw_body = "\n".join(
-                chunk for chunk in chunks if chunk.strip()
-            )
+            part = parts[index]
+            if not isinstance(part, dict):
+                return ""
 
-        # Classify based on the selected body itself, not the
-        # mere presence of a separate HTML MIME part.
+            body = part.get("body", {})
+            if isinstance(body, dict):
+                return body.get("Text") or body.get("Html") or ""
+            if isinstance(body, str):
+                return body
+            return ""
+
+        raw_body = ""
+
+        # Prefer plain text.
+        if isinstance(text_indices, list):
+            for index in text_indices:
+                content = get_part_content(index)
+                if isinstance(content, str) and content.strip():
+                    raw_body = content
+                    break
+
+        # Fall back to HTML if no plain-text part is available.
+        if not raw_body and isinstance(html_indices, list):
+            for index in html_indices:
+                content = get_part_content(index)
+                if isinstance(content, str) and content.strip():
+                    raw_body = content
+                    break
+
+        # Support simpler or older Himalaya response formats.
+        if not raw_body:
+            for key in ("body", "text_body", "html_body"):
+                value = data.get(key)
+
+                if isinstance(value, str) and value.strip():
+                    raw_body = value
+                    break
+
+                if isinstance(value, dict):
+                    content = value.get("Text") or value.get("Html") or ""
+                    if isinstance(content, str) and content.strip():
+                        raw_body = content
+                        break
+
+                # Older Himalaya responses may represent body as a list
+                # of content dictionaries or strings. Only apply this to
+                # body; text_body/html_body can contain MIME part indexes.
+                if key == "body" and isinstance(value, list):
+                    body_parts = []
+                    for item in value:
+                        if isinstance(item, dict):
+                            content = item.get("content")
+                            if isinstance(content, str) and content.strip():
+                                body_parts.append(content)
+                        elif isinstance(item, str) and item.strip():
+                            body_parts.append(item)
+
+                    if body_parts:
+                        raw_body = "\n\n".join(body_parts)
+                        break
+
+        # Classify based on the selected body itself.
         is_html = bool(
             re.search(
                 r"<(?:html|body|p|div|br|table|span|h[1-6])(?:\s|/?>)",

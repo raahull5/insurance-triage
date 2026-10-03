@@ -104,6 +104,7 @@ class PipelineStats:
         self.emails_failed = 0
         self.replies_sent = 0
         self.replies_suppressed = 0
+        self.replies_simulated = 0
         self.tickets_created = 0
         self.tickets_reused = 0
         self.escalations = 0
@@ -118,7 +119,8 @@ class PipelineStats:
             f"cycles={self.poll_cycles} seen={self.emails_seen} processed={self.emails_processed} "
             f"dupes={self.emails_skipped_duplicate} spam={self.emails_archived_spam} "
             f"held={self.emails_held_rate_limit} failed={self.emails_failed} "
-            f"replied={self.replies_sent} suppressed={self.replies_suppressed} "
+            f"replied={self.replies_sent} simulated={self.replies_simulated} "
+            f"suppressed={self.replies_suppressed} "
             f"tickets+={self.tickets_created} tickets~={self.tickets_reused} escalations={self.escalations}"
         )
 
@@ -742,6 +744,8 @@ class AutonomousPipeline:
                     self.stats.replies_sent += 1
                     return "Verification-Challenge-Sent", datetime.now().isoformat()
                 # A dry-run is a simulation, not a sent email.
+                if str(status).upper().replace("-", "_") in {"DRY_RUN", "SIMULATED"}:
+                    self.stats.replies_simulated += 1
                 return status, None
 
             self.stats.replies_suppressed += 1
@@ -779,7 +783,8 @@ class AutonomousPipeline:
             # A successful dry-run is only a simulation, not a delivered email.
             # Do not count it as sent or mark the thread as replied.
             status = getattr(audit, "status", None) or "Sent"
-            if str(status).upper() in {"DRY_RUN", "DRY-RUN", "SIMULATED"}:
+            if str(status).upper().replace("-", "_") in {"DRY_RUN", "SIMULATED"}:
+                self.stats.replies_simulated += 1
                 return status, None
 
             self.safety.record_dispatched_reply(
