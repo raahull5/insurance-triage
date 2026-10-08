@@ -134,7 +134,7 @@ async function fetchData(){
 
 var KPI_LABEL = {
   total_inquiries:'Total Inquiries', critical_emergencies:'Critical &amp; Emergencies',
-  human_escalations:'Human Escalations', auto_replied:'Auto-Replied', suppressed:'Suppressed / Held',
+  human_escalations:'Human Escalations', auto_replied:'Auto-Replied', suppressed:'Suppressed', replies_held:'Replies Held', reply_disabled:'Reply Disabled',
   unique_senders:'Unique Senders', avg_urgency_score:'Avg Urgency Score', open_tickets:'Open Tickets',
   automation_rate:'Automation Rate %'
 };

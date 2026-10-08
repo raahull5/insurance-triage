@@ -1,4 +1,3 @@
-
 """Human Review Escalation Engine for high-risk, sensitive, and complex insurance inquiries."""
 
 import re
@@ -152,7 +151,29 @@ class EscalationEngine:
                 send_ack_only = True
                 break
 
-        # 4. High-Value Claim Dispute Check
+        # 4. Claim Delay Escalation
+        if intent == "CLAIM_DELAY":
+            reasons.append("Claim delay requires supervisory review")
+            is_escalated = True
+
+            # Standard claim delays are critical, but high-value claim
+            # disputes retain the existing High-priority classification.
+            is_high_value_claim = any(
+                float(claim.get("claimed_amount", 0.0) or 0.0)
+                >= high_value_threshold
+                for claim in claims
+            )
+
+            if not is_high_value_claim:
+                priority = Priority.CRITICAL.value
+
+            if routed_to == "General Customer Support":
+                routed_to = "Senior Claims Adjuster & Supervisory Desk"
+
+            suppress_auto = True
+            send_ack_only = True
+
+        # 5. High-Value Claim Dispute Check
         # (> $5,000 threshold or large claim rejection)
         for claim in claims:
             claimed_amt = float(claim.get("claimed_amount", 0.0) or 0.0)
@@ -178,7 +199,7 @@ class EscalationEngine:
 
                 send_ack_only = True
 
-        # 5. Explicit Formal Complaint Check
+        # 6. Explicit Formal Complaint Check
         if any(
             re.search(pattern, content)
             for pattern in cls.FORMAL_COMPLAINT_PATTERNS
@@ -195,7 +216,7 @@ class EscalationEngine:
             suppress_auto = True
             send_ack_only = True
 
-        # 6. Policy Cancellation Check (Retention Opportunity)
+        # 7. Policy Cancellation Check (Retention Opportunity)
         if intent == "CANCELLATION" or any(
             re.search(pattern, content)
             for pattern in cls.CANCELLATION_PATTERNS
@@ -214,7 +235,7 @@ class EscalationEngine:
 
             send_ack_only = True
 
-        # 7. Severe Customer Distress / Hostile Sentiment
+        # 8. Severe Customer Distress / Hostile Sentiment
         if sentiment.lower() in ["angry", "furious", "hostile"]:
             reasons.append("Severe customer distress or hostile sentiment detected")
             is_escalated = True
@@ -225,7 +246,7 @@ class EscalationEngine:
             if routed_to == "General Customer Support":
                 routed_to = "Executive Customer Relations"
 
-        # 8. Repeat Contacts / Multiple Open Tickets within Short Window
+        # 9. Repeat Contacts / Multiple Open Tickets within Short Window
         if len(tickets) >= 2 or any(
             ticket.get("status") in ["Open", "In-Progress", "Escalated"]
             for ticket in tickets
@@ -241,7 +262,7 @@ class EscalationEngine:
             if routed_to == "General Customer Support":
                 routed_to = "Senior Tier-2 Support Operations"
 
-        # 9. Low AI Confidence (< 0.75)
+        # 10. Low AI Confidence (< 0.75)
         if confidence < 0.75:
             reasons.append(
                 f"Low AI classification confidence score ({confidence:.2f} < 0.75)"
@@ -260,7 +281,7 @@ class EscalationEngine:
             suppress_auto = True
             send_ack_only = True
 
-        # 10. Identity verification for claim-related requests
+        # 11. Identity verification for claim-related requests
         # An unknown customer requires human verification before account-specific
         # action. This is a review requirement, not by itself an emergency.
         if customer is None and intent in [

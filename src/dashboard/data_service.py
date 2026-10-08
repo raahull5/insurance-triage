@@ -52,11 +52,17 @@ class DashboardDataService:
         # Supplementary operational metrics
         cur.execute(
             "SELECT COUNT(*) FROM triage_records WHERE UPPER(reply_status) IN "
-            "('SUPPRESSED', 'HELD', 'SUPPRESSED_HUMAN_REVIEW', 'SUPPRESSED_SPAM', "
+            "('SUPPRESSED', 'SUPPRESSED_HUMAN_REVIEW', 'SUPPRESSED_SPAM', "
             "'SUPPRESSED_EMPTY_BODY', 'RATE_LIMITED', 'DUPLICATE_SUPPRESSED', "
-            "'SKIPPED', 'DISABLED')"
+            "'SKIPPED')"
         )
         suppressed_count = cur.fetchone()[0]
+
+        cur.execute("SELECT COUNT(*) FROM triage_records WHERE UPPER(reply_status) = 'HELD'")
+        replies_held_count = cur.fetchone()[0]
+
+        cur.execute("SELECT COUNT(*) FROM triage_records WHERE UPPER(reply_status) = 'DISABLED'")
+        reply_disabled_count = cur.fetchone()[0]
 
         cur.execute("SELECT COUNT(DISTINCT sender_email) FROM triage_records")
         unique_senders = cur.fetchone()[0]
@@ -79,6 +85,8 @@ class DashboardDataService:
             "human_escalations": escalations_count,
             "auto_replied": auto_replied_count,
             "suppressed": suppressed_count,
+            "replies_held": replies_held_count,
+            "reply_disabled": reply_disabled_count,
             "unique_senders": unique_senders,
             "avg_urgency_score": avg_urgency,
             "open_tickets": open_tickets,
